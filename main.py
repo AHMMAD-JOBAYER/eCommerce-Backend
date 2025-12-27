@@ -1,4 +1,5 @@
 import secrets
+import bcrypt
 import sqlite3
 from datetime import date
 from enum import Enum
@@ -333,9 +334,9 @@ def init_db():
 
 
 def hash_password(password: str) -> str:
-    # In a real application, use a strong hashing library like passlib or bcrypt
-    # For simplicity, using a basic hash here
-    return secrets.token_hex(16) + password  # Simulate hashing
+    password_bytes = password.encode("utf-8")
+    hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt())
+    return hashed.decode("utf-8")
 
 
 def generate_token() -> str:
@@ -449,13 +450,20 @@ def login_user(credentials: UserLogin):
     conn = get_db()
     cursor = conn.cursor()
 
-    hashed_pw = hash_password(credentials.password)
     user = cursor.execute(
-        "SELECT * FROM users WHERE email = ? AND password = ?",
-        (credentials.email, hashed_pw),
+        "SELECT * FROM users WHERE email = ?",
+        (credentials.email,),
     ).fetchone()
 
     if not user:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    password_valid = bcrypt.checkpw(
+        credentials.password.encode("utf-8"), user["password"].encode("utf-8")
+    )
+
+    if not password_valid:
         conn.close()
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -540,15 +548,22 @@ def login_admin(credentials: UserLogin):
     conn = get_db()
     cursor = conn.cursor()
 
-    hashed_pw = hash_password(credentials.password)
     admin = cursor.execute(
-        "SELECT * FROM admins WHERE email = ? AND password = ?",
-        (credentials.email, hashed_pw),
+        "SELECT * FROM admins WHERE email = ?",
+        (credentials.email,),
     ).fetchone()
 
     if not admin:
         conn.close()
         raise HTTPException(status_code=401, detail="Invalid admin credentials")
+
+    password_valid = bcrypt.checkpw(
+        credentials.password.encode("utf-8"), admin["password"].encode("utf-8")
+    )
+
+    if not password_valid:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = generate_token()
     cursor.execute(
